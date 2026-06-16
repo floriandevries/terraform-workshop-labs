@@ -216,7 +216,7 @@ resource "azurerm_resource_group" "lab" {
   }
 }
 
-module "storage_logs" {
+module "storage_account_logs" {
   source = "./modules/storage_account"
 
   resource_group_name         = azurerm_resource_group.lab.name
@@ -248,7 +248,7 @@ terraform plan
 Look carefully at the resource address:
 
 ```
-# module.storage_logs.azurerm_storage_account.st will be created
+# module.storage_account_logs.azurerm_storage_account.st will be created
 ```
 
 > **What's happening here?**  
@@ -258,9 +258,9 @@ Look carefully at the resource address:
 
 - [ ] Root `variables.tf` declares `var.initials`
 - [ ] `terraform.tfvars` exists with your own initials set
-- [ ] Root `main.tf` has `module "storage_logs"` with all required arguments
+- [ ] Root `main.tf` has `module "storage_account_logs"` with all required arguments
 - [ ] `terraform init` completed — `.terraform/modules/modules.json` exists
-- [ ] `terraform plan` shows `module.storage_logs.azurerm_storage_account.st` will be created
+- [ ] `terraform plan` shows `module.storage_account_logs.azurerm_storage_account.st` will be created
 
 ---
 
@@ -278,7 +278,7 @@ Create root `outputs.tf` with a reference to something that is **not** a declare
 ```hcl
 # This will fail — account_tier is NOT declared as an output in the module
 output "storage_tier" {
-  value = module.storage_logs.account_tier
+  value = module.storage_account_logs.account_tier
 }
 ```
 
@@ -304,12 +304,12 @@ Replace the content of `outputs.tf`:
 ```hcl
 output "logs_endpoint" {
   description = "Blob endpoint for the logs storage account."
-  value       = module.storage_logs.endpoint
+  value       = module.storage_account_logs.endpoint
 }
 
 output "logs_storage_name" {
   description = "Name of the logs storage account."
-  value       = module.storage_logs.name
+  value       = module.storage_account_logs.name
 }
 ```
 
@@ -324,7 +324,7 @@ terraform plan
 ### ✅ Checkpoint
 
 - [ ] The intentional scope error (`account_tier`) triggered a clear error message
-- [ ] `outputs.tf` now references `module.storage_logs.endpoint` and `.name`
+- [ ] `outputs.tf` now references `module.storage_account_logs.endpoint` and `.name`
 - [ ] `terraform plan` succeeds with `(known after apply)` on both outputs
 
 ---
@@ -341,7 +341,7 @@ terraform plan
 Add to the end of root `main.tf`:
 
 ```hcl
-module "storage_data" {
+module "storage_account_data" {
   source = "./modules/storage_account"
 
   resource_group_name         = azurerm_resource_group.lab.name
@@ -361,23 +361,24 @@ Replace the content of `outputs.tf`:
 
 ```hcl
 output "logs_endpoint" {
-  value = module.storage_logs.endpoint
+  value = module.storage_account_logs.endpoint
 }
 
 output "logs_storage_name" {
-  value = module.storage_logs.name
+  value = module.storage_account_logs.name
 }
 
 output "data_endpoint" {
-  value = module.storage_data.endpoint
+  value = module.storage_account_data.endpoint
 }
 
 output "data_storage_name" {
-  value = module.storage_data.name
+  value = module.storage_account_data.name
 }
 ```
 
 ```bash
+terraform init
 terraform plan
 ```
 
@@ -405,8 +406,8 @@ The state list shows:
 
 ```
 azurerm_resource_group.lab
-module.storage_logs.azurerm_storage_account.st
-module.storage_data.azurerm_storage_account.st
+module.storage_account_logs.azurerm_storage_account.st
+module.storage_account_data.azurerm_storage_account.st
 ```
 
 > **Notice:** Both storage accounts are in different module namespaces — same module definition, two fully independent resource instances in state. The resource group is a root-level resource, not inside any module namespace.
@@ -442,7 +443,7 @@ Type `yes`. Verify in the Azure Portal that `rg-<your-initials>-we-d-id-lab05` i
 | Ran `terraform init` and inspected `.terraform/modules/` | Terraform registers local modules by path, downloads remote ones |
 | Deliberately referenced a non-output attribute | The scope boundary is real and enforced — it's not just a convention |
 | Called the same module twice with different suffixes | One module definition → multiple independent resource sets in state |
-| Read `module.storage_logs.endpoint` from root outputs | `module.<local_name>.<output_name>` is the access pattern |
+| Read `module.storage_account_logs.endpoint` from root outputs | `module.<local_name>.<output_name>` is the access pattern |
 
 **Key habits from this lab:**
 - Always declare outputs for anything a caller might reasonably need
@@ -582,7 +583,7 @@ resource "azurerm_resource_group" "lab" {
   }
 }
 
-module "storage_logs" {
+module "storage_account_logs" {
   source = "./modules/storage_account"
 
   resource_group_name         = azurerm_resource_group.lab.name
@@ -595,7 +596,7 @@ module "storage_logs" {
   }
 }
 
-module "storage_data" {
+module "storage_account_data" {
   source = "./modules/storage_account"
 
   resource_group_name         = azurerm_resource_group.lab.name
@@ -613,19 +614,19 @@ module "storage_data" {
 
 ```hcl
 output "logs_endpoint" {
-  value = module.storage_logs.endpoint
+  value = module.storage_account_logs.endpoint
 }
 
 output "logs_storage_name" {
-  value = module.storage_logs.name
+  value = module.storage_account_logs.name
 }
 
 output "data_endpoint" {
-  value = module.storage_data.endpoint
+  value = module.storage_account_data.endpoint
 }
 
 output "data_storage_name" {
-  value = module.storage_data.name
+  value = module.storage_account_data.name
 }
 ```
 

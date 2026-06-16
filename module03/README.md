@@ -221,9 +221,9 @@ Open `terraform.tfstate` in your editor. Find the `"resources"` array and locate
 ### Step 4a - Simulate drift
 
 1. Open the **Azure Portal** → navigate to your storage account.
-2. Click **Configuration** in the left menu.
-3. Change **Replication** from `Locally-redundant storage (LRS)` to `Zone-redundant storage (ZRS)`.
-4. Click **Save**.
+2. Click **Tags** in the left menu.
+3. Add a new tag: key `owner`, value `<your-initials>` (e.g. `fjh`).
+4. Click **Apply**.
 
 This simulates what happens when someone changes infrastructure outside of Terraform.
 
@@ -237,11 +237,13 @@ Find this in the output:
 
 ```
   ~ update in-place
-  ~ account_replication_type = "LRS" -> "ZRS"
+  ~ tags = {
+      - "owner" = "fjh" -> null
+    }
 ```
 
 > **What's happening here?**  
-> Terraform compared your config (LRS) against the real Azure resource (ZRS) and found a difference. The `~` symbol means an in-place update, Terraform is proposing to revert the manual change to match what the config declares.
+> Terraform compared your config (no `owner` tag) against the real Azure resource (which now has one) and found a difference. The `~` symbol means an in-place update — Terraform is proposing to revert the manual change to match what the config declares.
 
 ### Step 4c - Reconcile the drift
 
@@ -249,7 +251,7 @@ Find this in the output:
 terraform apply
 ```
 
-Type `yes`. Verify in the Azure Portal that the replication type has returned to LRS.
+Type `yes`. Verify in the Azure Portal that the `owner` tag has been removed.
 
 ### Step 4d - Destroy all resources
 
