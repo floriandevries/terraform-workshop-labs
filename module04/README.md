@@ -1,15 +1,17 @@
-# Module 04 — Lab
-## Terraform Configuration Language
+# Module 04 - Lab
+## Terraform configuration language
 
-**Duration:** ~35 minutes  
+**Duration:** ~30 minutes  
 **Provider:** `hashicorp/azurerm`  
 **You will:** Build a parameterised, multi-resource configuration using variables, `.tfvars` files, `locals` with `lookup()`, a data source, `for_each`, custom conditions (`precondition`, `postcondition`, `check`), and outputs — with a secret handled safely throughout.
-
-> **Note:** This lab follows Module 04 (Terraform configuration language).
 
 ---
 
 ## Prerequisites
+
+> **First time?** These labs require **Terraform** (≥ 1.5) and the **Azure CLI**. If the `terraform` or `az` commands below aren't recognised, install them first: [Terraform](https://developer.hashicorp.com/terraform/install) · [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli).
+
+> **Windows users:** Run this lab in **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL**. Every command below is written for a bash-style shell and runs as-is in Git Bash. CMD and PowerShell differ on a few commands (`export`, `mkdir -p`, inspecting files), so they aren't recommended for these labs.
 
 ```bash
 terraform -version    # should be ≥ 1.5
@@ -22,9 +24,7 @@ Set the database password before you start — this variable has no default, so 
 export TF_VAR_database_password="labpassword123"
 ```
 
-Your trainer has created a shared resource group where you will deploy your storage accounts. You will look it up as a **data source** — Terraform reads it but does not manage it. Your trainer will confirm the resource group name; it will look like `rg-fdv-we-p-mgt-demo`.
-
-Each trainee uses their own initials in resource names to avoid conflicts with classmates.
+The resource group you created in Lab 03 (`rg-<your-initials>-we-d-mgt-lab03`) is still running — you will look it up here as a **data source**. Terraform reads it but does not manage its lifecycle in this configuration.
 
 ---
 
@@ -38,19 +38,19 @@ This lab uses multiple `.tf` files. Terraform loads all `.tf` files in the worki
 
 ---
 
-## Step 01 — Variables, `.tfvars` & Locals with `lookup()`
+## Step 1 — Variables, `.tfvars` and locals with `lookup()`
 
 ### What you'll learn
 - How to declare typed variables with defaults, descriptions, and validation rules.
 - How to use a `.tfvars` file to manage environment-specific values.
 - How `locals` computes derived values, including `lookup()` for multi-value logic.
 
-### 1a. Create `variables.tf`
+### Step 1a - Create `variables.tf`
 
 ```hcl
 variable "initials" {
   type        = string
-  description = "Your initials, used to make resource names unique (e.g. 'jdh'). Lowercase letters only."
+  description = "Your initials, used to make resource names unique (e.g. 'fdv'). Lowercase letters only."
 
   validation {
     condition     = can(regex("^[a-z]{2,4}$", var.initials))
@@ -91,13 +91,13 @@ variable "database_password" {
 ```
 
 > **What's happening here?**  
-> Each variable has a `type` — Terraform rejects values of the wrong type at plan time. The `validation` block on `var.environment` enforces allowed values with a clear error message before any API call. `database_password` has no `default` — it **must** be supplied at runtime. The `sensitive = true` flag masks its value in terminal output (we'll show why that's not enough security in Step 04).
+> Each variable has a `type` — Terraform rejects values of the wrong type at plan time. The `validation` block on `var.environment` enforces allowed values with a clear error message before any API call. `database_password` has no `default` — it **must** be supplied at runtime. The `sensitive = true` flag masks its value in terminal output (we'll show why that's not enough security in Step 4).
 
-### 1b. Create `development.tfvars`
+### Step 1b - Create `development.tfvars`
 
 ```hcl
-environment      = "development"
-initials         = "jdh"           # REPLACE: your own lowercase initials (2–4 letters)
+environment = "development"
+initials    = "fdv" # REPLACE: your own lowercase initials (2–4 letters)
 tags = {
   managed_by = "terraform"
 }
@@ -109,7 +109,7 @@ storage_accounts = ["logs", "data"]
 >
 > **Important:** `database_password` is intentionally absent here. Secrets must not live in `.tfvars` files committed to Git — they come from environment variables (`TF_VAR_database_password`) or a secrets manager.
 
-### 1c. Create `locals.tf`
+### Step 1c - Create `locals.tf`
 
 ```hcl
 locals {
@@ -148,25 +148,25 @@ echo 'lookup({"development":"Standard","test":"Standard","acceptance":"Standard"
 
 ---
 
-## Step 02 — Data Source, `depends_on` & `for_each`
+## Step 2 — Data source, `depends_on` and `for_each`
 
 ### What you'll learn
 - How `data` blocks read existing infrastructure without managing its lifecycle.
 - When and how to use `depends_on` for explicit ordering.
 - How `for_each = toset()` creates multiple named resource instances.
 
-### 2a. Create `data.tf`
+### Step 2a - Create `data.tf`
 
 ```hcl
-data "azurerm_resource_group" "shared" {
-  name = "rg-fdv-we-p-mgt-demo"   # confirm the name with your trainer
+data "azurerm_resource_group" "existing" {
+  name = "rg-${var.initials}-we-d-mgt-lab03"
 }
 ```
 
 > **What's happening here?**  
-> This tells Terraform to look up an existing resource group. It will **never** create, update, or destroy it — Terraform only reads it. Its attributes (name, location, tags) become available as `data.azurerm_resource_group.shared.location`, etc.
+> This tells Terraform to look up the resource group you created in Lab 03. It will **never** create, update, or destroy it — Terraform only reads it. Its attributes (name, location, tags) become available as `data.azurerm_resource_group.existing.location`, etc. Using `var.initials` in the name means each trainee automatically looks up their own resource group.
 
-### 2b. Create `main.tf`
+### Step 2b - Create `main.tf`
 
 ```hcl
 terraform {
@@ -186,35 +186,39 @@ resource "azurerm_storage_account" "lab" {
   for_each = toset(var.storage_accounts)
 
   name                     = "st${var.initials}wedmgtlab04${each.key}"
-  resource_group_name      = data.azurerm_resource_group.shared.name
-  location                 = data.azurerm_resource_group.shared.location
+  resource_group_name      = data.azurerm_resource_group.existing.name
+  location                 = data.azurerm_resource_group.existing.location
   account_tier             = local.storage_tier
   account_replication_type = "LRS"
   tags                     = local.tags
 
-  depends_on = [data.azurerm_resource_group.shared]
+  depends_on = [data.azurerm_resource_group.existing]
 }
 ```
 
 > **What's happening here?**  
 > Five things to point out.
 >
-> **Data source** — `data.azurerm_resource_group.shared` reads the trainer's existing resource group. Terraform fetches its attributes but does not manage its lifecycle. Your storage accounts will be deployed *into* this shared resource group.
+> **Data source** — `data.azurerm_resource_group.existing` reads the resource group you created in Lab 03. Terraform fetches its attributes but does not manage its lifecycle. Your storage accounts will be deployed *into* that resource group.
 >
 > **`for_each`** — instead of two identical storage account blocks, `toset(var.storage_accounts)` creates one named instance per element. Each has its own address: `azurerm_storage_account.lab["logs"]` and `["data"]`.
 >
-> **`var.initials`** — embedding your initials in the name (`stjdhwedmgtlab04logs`) keeps your resources unique alongside your classmates' in the shared resource group. The name follows the Microsoft naming convention: `st` + initials + `we` (westeurope) + `d` (development) + `mgt` (workload) + `lab04` (instance) + suffix.
+> **`var.initials`** — embedding your initials in the name (`stfdvwedmgtlab04logs`) keeps the storage account names consistent with the Lab 03 naming convention. The name follows the Microsoft naming convention: `st` + initials + `we` (westeurope) + `d` (development) + `mgt` (workload) + `lab04` (instance) + suffix.
 >
 > **`local.storage_tier`** — the `lookup()` result drives the tier across all instances from a single map.
 >
 > **`depends_on`** — the `location` reference already creates an implicit dependency, so this is redundant here. It is shown deliberately so you see the syntax and understand when it *is* needed: role assignments that must propagate before a VM can access Key Vault, DNS records that must exist before a certificate can be issued. In those cases, `depends_on` is the **only** way to express the ordering.
 
-### 2c. Initialise and preview
+### Step 2c - Initialise and preview
 
 ```bash
 terraform init
+terraform validate
 terraform plan -var-file="development.tfvars"
 ```
+
+> **What's happening here?**  
+> You ran `terraform init` back in Step 1c, but that was before `main.tf` existed. Now that `main.tf` declares the `azurerm` provider in its `required_providers` block, `init` runs again to download it. Then `terraform validate` checks the configuration against the provider schema — the same habit from Lab 03: always validate before you plan.
 
 Verify in the plan output:
 - The data source is **read** (not created) — it appears before any resource
@@ -235,14 +239,14 @@ terraform plan -var-file="development.tfvars" -var="environment=production"
 ### ✅ Checkpoint
 
 - [ ] `data.tf` and `main.tf` exist
-- [ ] `terraform init` completed successfully
+- [ ] `terraform init` completed successfully and `terraform validate` reported success
 - [ ] `terraform plan -var-file="development.tfvars"` shows `Plan: 2 to add`
 - [ ] `account_tier` is `"Standard"` for development and `"Premium"` for production
 - [ ] Storage account names in the plan include your initials
 
 ---
 
-## Step 03 — Custom Conditions & Outputs
+## Step 3 — Custom conditions and outputs
 
 ### What you'll learn
 - How `precondition` validates assumptions BEFORE a resource is created.
@@ -250,7 +254,7 @@ terraform plan -var-file="development.tfvars" -var="environment=production"
 - How `check` blocks provide ongoing compliance assertions without blocking applies.
 - How outputs expose values after apply, including the key difference between `sensitive` masking and real security.
 
-### 3a. Add a `lifecycle` block with `precondition`
+### Step 3a - Add a `lifecycle` block with `precondition`
 
 Update `azurerm_storage_account.lab` in `main.tf` to add the lifecycle block:
 
@@ -259,13 +263,13 @@ resource "azurerm_storage_account" "lab" {
   for_each = toset(var.storage_accounts)
 
   name                     = "st${var.initials}wedmgtlab04${each.key}"
-  resource_group_name      = data.azurerm_resource_group.shared.name
-  location                 = data.azurerm_resource_group.shared.location
+  resource_group_name      = data.azurerm_resource_group.existing.name
+  location                 = data.azurerm_resource_group.existing.location
   account_tier             = local.storage_tier
   account_replication_type = "LRS"
   tags                     = local.tags
 
-  depends_on = [data.azurerm_resource_group.shared]
+  depends_on = [data.azurerm_resource_group.existing]
 
   lifecycle {
     precondition {
@@ -287,7 +291,7 @@ terraform plan -var-file="development.tfvars"
 
 The name `st<your-initials>wedmgtlab04applicationlogs` will exceed 24 characters for any initials — the precondition catches it at plan time before any API call. Remove `"applicationlogs"` from the list before continuing.
 
-### 3b. Add a `postcondition`
+### Step 3b - Add a `postcondition`
 
 Extend the `lifecycle` block:
 
@@ -308,7 +312,7 @@ Extend the `lifecycle` block:
 > **What's happening here?**  
 > The `postcondition` runs **after** the resource is created or updated. `self` refers to the resource itself — giving you access to its actual attributes as returned by Azure. If the cloud provider set up the resource differently than intended, `postcondition` catches it immediately. This is the key difference from `precondition`: you're validating the *result*, not the *input*.
 
-### 3c. Add a `check` block
+### Step 3c - Add a `check` block
 
 Append to the end of `main.tf` (outside the resource block):
 
@@ -329,7 +333,7 @@ check "storage_https_only" {
 >
 > Azure enables HTTPS-only by default, so this check always passes in our config. To see the warning fire, add `https_traffic_only_enabled = false` to the resource block and run `terraform plan`.
 
-### 3d. Create `outputs.tf`
+### Step 3d - Create `outputs.tf`
 
 ```hcl
 output "storage_endpoints" {
@@ -357,7 +361,7 @@ output "database_password_hint" {
 }
 ```
 
-### 3e. Verify with `terraform plan`
+### Step 3e - Verify with `terraform plan`
 
 ```bash
 terraform plan -var-file="development.tfvars"
@@ -375,7 +379,7 @@ The plan should succeed — conditions pass and outputs show `(known after apply
 
 ---
 
-## Step 04 — Apply, `terraform console` & Secrets
+## Step 4 — Apply, `terraform console` and secrets
 
 ### What you'll learn
 - How to apply and verify a multi-resource configuration.
@@ -383,15 +387,15 @@ The plan should succeed — conditions pass and outputs show `(known after apply
 - How to query outputs in different formats.
 - Why `sensitive = true` does **not** protect your secrets in state.
 
-### 4a. Apply the configuration
+### Step 4a - Apply the configuration
 
 ```bash
 terraform apply -var-file="development.tfvars"
 ```
 
-Type `yes`. Open the **Azure Portal** and navigate to the trainer's resource group. Verify both storage accounts appear with names containing your initials.
+Type `yes`. Open the **Azure Portal** and navigate to your Lab 03 resource group (`rg-<your-initials>-we-d-mgt-lab03`). Verify both storage accounts appear with names containing your initials.
 
-### 4b. Explore with `terraform console`
+### Step 4b - Explore with `terraform console`
 
 ```bash
 terraform console -var-file="development.tfvars"
@@ -420,7 +424,7 @@ exit
 > **What's happening here?**  
 > Inside `terraform console` you have access to all variables, locals, resources, and data sources from your current state — it reads live state, not just config. It's the best tool for debugging expressions before committing them.
 
-### 4c. Query outputs
+### Step 4c - Query outputs
 
 ```bash
 # All outputs in human-readable format
@@ -435,7 +439,7 @@ terraform output -raw environment_tier
 
 > **Notice:** `storage_endpoints` returns a map keyed by storage name. `storage_names_list` returns a flat list. `environment_tier` returns just the string `"Standard"`. The `database_password_hint` output shows `<sensitive>` — the value is masked.
 
-### 4d. Show why `sensitive = true` is not security
+### Step 4d - Show why `sensitive = true` is not security
 
 ```bash
 cat terraform.tfstate | grep -A3 "database_password"
@@ -443,13 +447,22 @@ cat terraform.tfstate | grep -A3 "database_password"
 
 > **Important:** `sensitive = true` masks the value in **terminal output only**. The actual value is stored in `terraform.tfstate` as plain text. This is why production state must use an encrypted remote backend (Azure Blob Storage with customer-managed keys, or HCP Terraform) with restricted access controls. Never commit `terraform.tfstate` to Git.
 
-### 4e. Destroy
+### Step 4e - Destroy
 
 ```bash
 terraform destroy -var-file="development.tfvars"
 ```
 
-Type `yes`. Verify in the Azure Portal that your storage accounts are gone from the trainer's resource group. The resource group itself remains — Terraform only destroys what it manages, and the data source is read-only.
+Type `yes`. Verify in the Azure Portal that your storage accounts are gone. The resource group remains — Terraform only destroys what it manages, and the data source is read-only.
+
+Now switch to the Lab 03 folder and destroy the resource group:
+
+```bash
+cd ~/module03_lab
+terraform destroy
+```
+
+Type `yes`. Verify in the Portal that `rg-<your-initials>-we-d-mgt-lab03` is gone.
 
 ### ✅ Checkpoint
 
@@ -457,7 +470,8 @@ Type `yes`. Verify in the Azure Portal that your storage accounts are gone from 
 - [ ] `terraform console` evaluated `local.storage_tier` and the `for` expression successfully
 - [ ] `terraform output -json storage_endpoints` returns valid JSON
 - [ ] `terraform.tfstate` shows `database_password` in plain text — the security lesson
-- [ ] `terraform destroy` removed your 2 storage accounts, the shared resource group remains
+- [ ] `terraform destroy` removed your 2 storage accounts, the Lab 03 resource group remains
+- [ ] Lab 03 resource group (`rg-<your-initials>-we-d-mgt-lab03`) destroyed via `cd ~/module03_lab && terraform destroy`
 
 ---
 
@@ -466,7 +480,7 @@ Type `yes`. Verify in the Azure Portal that your storage accounts are gone from 
 | What you did | What you learned |
 |---|---|
 | Declared `variable "environment"` with `validation` | Variables enforce business rules before any API call |
-| Added `variable "initials"` with regex validation | Pattern-validated variables guarantee safe naming across all classmates |
+| Added `variable "initials"` with regex validation | Pattern-validated variables guarantee safe, globally-unique storage account names |
 | Created `development.tfvars` (no secrets) | Environment-specific values without CLI flags |
 | Used `lookup(local.storage_account_tiers, ...)` | Multi-value logic from a map — cleaner than ternary chains |
 | Used `merge(var.tags, { environment = var.environment })` | Derived tags always stay consistent with the environment variable |
@@ -499,7 +513,7 @@ Type `yes`. Verify in the Azure Portal that your storage accounts are gone from 
 ```hcl
 variable "initials" {
   type        = string
-  description = "Your initials, used to make resource names unique. Lowercase letters only."
+  description = "Your initials, used to make resource names unique (e.g. 'fdv'). Lowercase letters only."
 
   validation {
     condition     = can(regex("^[a-z]{2,4}$", var.initials))
@@ -542,8 +556,8 @@ variable "database_password" {
 ### `development.tfvars`
 
 ```hcl
-environment      = "development"
-initials         = "jdh"   # replace with your own initials
+environment = "development"
+initials    = "fdv" # REPLACE: your own lowercase initials (2–4 letters)
 tags = {
   managed_by = "terraform"
 }
@@ -570,8 +584,8 @@ locals {
 ### `data.tf`
 
 ```hcl
-data "azurerm_resource_group" "shared" {
-  name = "rg-fdv-we-p-mgt-demo"   # confirm with your trainer
+data "azurerm_resource_group" "existing" {
+  name = "rg-${var.initials}-we-d-mgt-lab03"
 }
 ```
 
@@ -595,13 +609,13 @@ resource "azurerm_storage_account" "lab" {
   for_each = toset(var.storage_accounts)
 
   name                     = "st${var.initials}wedmgtlab04${each.key}"
-  resource_group_name      = data.azurerm_resource_group.shared.name
-  location                 = data.azurerm_resource_group.shared.location
+  resource_group_name      = data.azurerm_resource_group.existing.name
+  location                 = data.azurerm_resource_group.existing.location
   account_tier             = local.storage_tier
   account_replication_type = "LRS"
   tags                     = local.tags
 
-  depends_on = [data.azurerm_resource_group.shared]
+  depends_on = [data.azurerm_resource_group.existing]
 
   lifecycle {
     precondition {
@@ -611,7 +625,7 @@ resource "azurerm_storage_account" "lab" {
 
     postcondition {
       condition     = self.account_replication_type == "LRS"
-      error_message = "Expected LRS replication but got ${self.account_replication_type}."
+      error_message = "Expected LRS replication but got ${self.account_replication_type}. Check account configuration."
     }
   }
 }

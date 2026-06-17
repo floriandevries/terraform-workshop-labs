@@ -7,6 +7,10 @@
 
 ## Prerequisites
 
+> **First time?** These labs require **Terraform** (≥ 1.5) and the **Azure CLI**. If the `terraform` or `az` commands below aren't recognised, install them first: [Terraform](https://developer.hashicorp.com/terraform/install) · [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli).
+
+> **Windows users:** Run this lab in **Git Bash** (bundled with [Git for Windows](https://git-scm.com/download/win)) or **WSL**. Every command below is written for a bash-style shell and runs as-is in Git Bash. CMD and PowerShell differ on a few commands (`export`, `mkdir -p`, inspecting files), so they aren't recommended for these labs.
+
 ```bash
 terraform -version    # should be ≥ 1.5
 az account show       # confirm your training Azure subscription is active
@@ -24,7 +28,7 @@ mkdir ~/module03_lab && cd ~/module03_lab
 
 All files you create in this lab go in this folder.
 
-## Step 1 — Write and Format
+## Step 1 — Write and format
 
 ### What you'll learn
 - How to write a minimal but complete Terraform configuration for Azure.
@@ -66,7 +70,7 @@ resource "azurerm_storage_account" "lab" {
 >
 > The names follow Microsoft's naming convention: `<type>-<initials>-<region>-<env>-<workload>-<instance>`. Here `we` = westeurope, `d` = development, `mgt` = management workload, `lab03` = this lab.
 >
-> Example with initials `jdh`: resource group `rg-jdh-we-d-mgt-lab03`, storage account `stjdhwedmgtlab03`.
+> Example with initials `fdv`: resource group `rg-fdv-we-d-mgt-lab03`, storage account `stfdvwedmgtlab03`.
 
 ### Step 1b - Format with `terraform fmt`
 
@@ -80,6 +84,11 @@ Open `main.tf` again. The file has been rewritten in place with consistent two-s
 > `terraform fmt` applies the canonical HCL style. It only changes whitespace, never logic. The configuration is identical, just readable and consistent.
 
 > **Notice:** `terraform fmt` prints the filename of every file it changes. If nothing is printed, the file was already correctly formatted.
+
+### ✅ Checkpoint
+
+- [ ] `main.tf` exists with a resource group and a storage account, both using your initials
+- [ ] `terraform fmt` reformatted the file — aligned `=` signs and consistent two-space indentation
 
 ## Step 2 — Init, validate and plan
 
@@ -164,6 +173,13 @@ terraform plan -out=tfplan
 > **What's happening here?**  
 > This saves the exact plan to a binary file called `tfplan`. When you apply a saved plan, Terraform applies *exactly* what was reviewed, there is no risk of drift between the review and the execution. This is the production-safe pattern.
 
+### ✅ Checkpoint
+
+- [ ] `terraform init` downloaded the `azurerm` provider and created `.terraform.lock.hcl`
+- [ ] `terraform validate` caught the `resourc_group_name` typo, then passed after the fix
+- [ ] `terraform plan` showed `Plan: 2 to add, 0 to change, 0 to destroy`
+- [ ] The plan was saved to a `tfplan` file
+
 ## Step 3 — Apply and inspect state
 
 ### What you'll learn
@@ -211,6 +227,12 @@ Open `terraform.tfstate` in your editor. Find the `"resources"` array and locate
 
 > **Important:** Never manually edit `terraform.tfstate`. If you need to modify state, use `terraform state` commands.
 
+### ✅ Checkpoint
+
+- [ ] `terraform apply tfplan` created both resources — visible in the Azure Portal
+- [ ] `terraform state list` shows `azurerm_resource_group.lab` and `azurerm_storage_account.lab`
+- [ ] `terraform state show` displayed the storage account's `id` — the full ARM resource ID
+
 ## Step 4 — Drift and destroy
 
 ### What you'll learn
@@ -222,7 +244,7 @@ Open `terraform.tfstate` in your editor. Find the `"resources"` array and locate
 
 1. Open the **Azure Portal** → navigate to your storage account.
 2. Click **Tags** in the left menu.
-3. Add a new tag: key `owner`, value `<your-initials>` (e.g. `fjh`).
+3. Add a new tag: key `owner`, value `<your-initials>` (e.g. `fdv`).
 4. Click **Apply**.
 
 This simulates what happens when someone changes infrastructure outside of Terraform.
@@ -238,7 +260,7 @@ Find this in the output:
 ```
   ~ update in-place
   ~ tags = {
-      - "owner" = "fjh" -> null
+      - "owner" = "fdv" -> null
     }
 ```
 
@@ -253,17 +275,36 @@ terraform apply
 
 Type `yes`. Verify in the Azure Portal that the `owner` tag has been removed.
 
-### Step 4d - Destroy all resources
+### Step 4d - Preview the destroy plan
 
 ```bash
-terraform destroy
+terraform plan -destroy
 ```
 
-Review the plan (should show 2 to destroy), then type `yes`.
+Review the output — `Plan: 0 to add, 0 to change, 2 to destroy`. Notice that the storage account appears before the resource group in the destroy order. Terraform reverses the dependency graph automatically: it cannot remove the resource group while the storage account still lives inside it.
 
-> **Notice:** The storage account is destroyed *before* the resource group, reverse dependency order. Terraform works this out automatically from the same dependency graph it used to create them.
+> **Notice:** Terraform works out the reverse dependency order from the same graph it used to create. You never have to specify what to destroy first.
 
-Verify in the Portal that `rg-<your-initials>-we-d-mgt-lab03` is gone.
+### Step 4e - Destroy the storage account
+
+**Lab 04 will reference your resource group as a data source**, so keep it alive. Destroy only the storage account:
+
+```bash
+terraform destroy -target=azurerm_storage_account.lab
+```
+
+Type `yes`. Verify in the Portal that the storage account is gone but `rg-<your-initials>-we-d-mgt-lab03` remains.
+
+> **Notice:** Terraform prints a yellow warning that *"Resource targeting is in effect"* and is *"not for routine use"*. That is expected here — we are deliberately keeping the resource group for Lab 04. In normal day-to-day work you destroy everything, so you rarely need `-target`.
+
+> You will destroy the resource group at the end of Lab 04.
+
+### ✅ Checkpoint
+
+- [ ] The manually added `owner` tag showed up as an in-place update in `terraform plan`
+- [ ] `terraform apply` reconciled the drift — the tag is gone from the Portal
+- [ ] `terraform plan -destroy` previewed the storage account being destroyed before the resource group
+- [ ] `terraform destroy -target=azurerm_storage_account.lab` removed the storage account; the resource group remains for Lab 04
 
 ## Summary
 
@@ -277,13 +318,15 @@ Verify in the Portal that `rg-<your-initials>-we-d-mgt-lab03` is gone.
 | `terraform apply tfplan` | Created the resource group and storage account |
 | `terraform state list` | Listed all resources tracked in state |
 | `terraform state show` | Showed the full attributes of the storage account |
-| `terraform destroy` | Removed both resources in reverse dependency order |
+| `terraform plan -destroy` | Previewed the destroy order (storage account before resource group) |
+| `terraform destroy -target=azurerm_storage_account.lab` | Removed only the storage account, keeping the resource group for Lab 04 |
 
 **Habits to take away:**
 - Run `terraform fmt` before committing. Run `terraform validate` before every `terraform plan`.
 - Always run `terraform init` first, `terraform validate` needs the provider schemas to catch argument-level errors.
 - Always read the plan before typing `yes`.
 - Drift happens. `terraform plan` always tells you about it.
+- Terraform reverses the dependency graph for destroys automatically — you never have to specify the order.
 - Never manually edit `terraform.tfstate`.
 
 ---
